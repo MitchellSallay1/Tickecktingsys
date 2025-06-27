@@ -74,8 +74,8 @@ Eventticketing/
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/eventticketing.git
-   cd eventticketing/backend
+   git clone https://github.com/MitchellSallay1/Tickecktingsys.git
+   cd Tickecktingsys/backend
    ```
 
 2. **Install dependencies**
@@ -322,4 +322,4 @@ For support and questions:
 - Enhanced analytics dashboard
 - Improved error handling
 - Performance optimizations
-- Security enhancements 
+- Security enhancements
