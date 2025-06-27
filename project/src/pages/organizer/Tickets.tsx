@@ -11,10 +11,11 @@ import {
   CheckCircle,
   XCircle 
 } from 'lucide-react';
+import { toast } from 'react-toastify';
 import { useAuth } from '../../context/AuthContext';
 import { getEventByIdApi } from '../../services/eventService';
-import { getEventTicketsApi } from '../../services/ticketService';
-import { Event, Ticket as TicketType, FilterParams } from '../../types';
+import { getEventTicketsApi, cancelTicketApi, refundTicketApi } from '../../services/ticketService';
+import { Event, Ticket, FilterParams } from '../../types';
 import Card, { CardContent, CardHeader } from '../../components/common/Card';
 import Button from '../../components/common/Button';
 import Input from '../../components/common/Input';
@@ -22,10 +23,9 @@ import Select from '../../components/common/Select';
 import TicketCard from '../../components/common/TicketCard';
 import Modal from '../../components/common/Modal';
 
-interface Ticket {
-  id: string;
+// Extended ticket interface for display purposes
+interface TicketDisplay extends Ticket {
   ticketNumber: string;
-  eventId: string;
   eventName: string;
   holderName: string;
   holderEmail: string;
@@ -34,34 +34,37 @@ interface Ticket {
     amount: number;
     currency: 'LRD' | 'USD';
   };
-  status: 'valid' | 'used' | 'cancelled' | 'refunded';
-  purchaseDate: string;
   checkedInAt?: string;
 }
 
-const mockTickets: Ticket[] = [
+const mockTickets: TicketDisplay[] = [
   {
     id: '1',
     ticketNumber: 'TIX-001',
     eventId: '1',
     eventName: 'Sample Event',
+    userId: '1',
     holderName: 'John Doe',
     holderEmail: 'john@example.com',
+    ticketType: 'VIP',
     type: 'VIP',
     price: {
       amount: 100,
       currency: 'USD'
     },
     status: 'valid',
-    purchaseDate: '2024-03-15T10:00:00Z'
+    purchaseDate: '2024-03-15T10:00:00Z',
+    qrCode: 'qr-code-1'
   },
   {
     id: '2',
     ticketNumber: 'TIX-002',
     eventId: '1',
     eventName: 'Sample Event',
+    userId: '2',
     holderName: 'Jane Smith',
     holderEmail: 'jane@example.com',
+    ticketType: 'Regular',
     type: 'Regular',
     price: {
       amount: 15000,
@@ -69,6 +72,7 @@ const mockTickets: Ticket[] = [
     },
     status: 'used',
     purchaseDate: '2024-03-14T15:30:00Z',
+    qrCode: 'qr-code-2',
     checkedInAt: '2024-03-15T18:45:00Z'
   }
 ];
@@ -79,10 +83,10 @@ const Tickets: React.FC = () => {
   const { user } = useAuth();
   
   const [event, setEvent] = useState<Event | null>(null);
-  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [tickets, setTickets] = useState<TicketDisplay[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [selectedTicket, setSelectedTicket] = useState<TicketDisplay | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   
@@ -121,7 +125,7 @@ const Tickets: React.FC = () => {
 
   useEffect(() => {
     // In a real app, fetch tickets for the specific event
-    setTickets(mockTickets as Ticket[]);
+    setTickets(mockTickets);
     setIsLoading(false);
   }, [eventId]);
 
@@ -138,7 +142,21 @@ const Tickets: React.FC = () => {
         status: filters.status || undefined,
       });
       
-      setTickets(response.data);
+      // Convert API response to display format
+      const displayTickets: TicketDisplay[] = response.data.map(ticket => ({
+        ...ticket,
+        ticketNumber: ticket.id, // Use ID as ticket number for now
+        eventName: event?.title || 'Unknown Event',
+        holderName: 'Unknown User', // Would come from user service
+        holderEmail: 'unknown@example.com',
+        type: ticket.ticketType,
+        price: {
+          amount: 100, // Would come from event pricing
+          currency: 'USD'
+        }
+      }));
+      
+      setTickets(displayTickets);
       setTotalPages(response.totalPages);
     } catch (error) {
       console.error('Error fetching tickets:', error);
@@ -164,17 +182,47 @@ const Tickets: React.FC = () => {
     }
   };
 
-  const handleEditTicket = (ticket: Ticket) => {
+  const handleEditTicket = (ticket: TicketDisplay) => {
     setSelectedTicket(ticket);
     setIsEditModalOpen(true);
   };
 
-  const handleCancelTicket = (ticket: Ticket) => {
+  const handleCancelTicket = (ticket: TicketDisplay) => {
     setSelectedTicket(ticket);
     setIsCancelModalOpen(true);
   };
 
-  const handleUpdateTicket = (field: keyof Ticket, value: string) => {
+  const confirmCancelTicket = async () => {
+    if (!selectedTicket) return;
+    
+    try {
+      await cancelTicketApi(selectedTicket.id);
+      setTickets(tickets.map(t => 
+        t.id === selectedTicket.id ? { ...t, status: 'cancelled' as const } : t
+      ));
+      toast.success('Ticket cancelled successfully');
+      setIsCancelModalOpen(false);
+      setSelectedTicket(null);
+    } catch (error) {
+      console.error('Error cancelling ticket:', error);
+      toast.error('Failed to cancel ticket');
+    }
+  };
+
+  const handleRefundTicket = async (ticket: TicketDisplay) => {
+    try {
+      await refundTicketApi(ticket.id);
+      setTickets(tickets.map(t => 
+        t.id === ticket.id ? { ...t, status: 'refunded' as const } : t
+      ));
+      toast.success('Refund processed successfully');
+    } catch (error) {
+      console.error('Error processing refund:', error);
+      toast.error('Failed to process refund');
+    }
+  };
+
+  const handleUpdateTicket = (field: keyof TicketDisplay, value: string) => {
     if (!selectedTicket) return;
     setSelectedTicket({
       ...selectedTicket,
@@ -467,7 +515,7 @@ const Tickets: React.FC = () => {
           </Button>
           <Button
             variant="danger"
-            onClick={() => {/* Implement cancel */}}
+            onClick={confirmCancelTicket}
           >
             Yes, Cancel Ticket
           </Button>

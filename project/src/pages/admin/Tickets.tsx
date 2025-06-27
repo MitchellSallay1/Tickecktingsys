@@ -1,51 +1,64 @@
 import React, { useState, useEffect } from 'react';
-import { Search, AlertCircle, Filter, Ticket as TicketIcon, QrCode } from 'lucide-react';
+import { Search, Filter, Download, Mail, Edit2, Trash2, AlertCircle } from 'lucide-react';
+import { toast } from 'react-toastify';
+import { useAuth } from '../../context/AuthContext';
+import { getAllTicketsApi, cancelTicketApi, refundTicketApi } from '../../services/ticketService';
+import { Ticket, FilterParams } from '../../types';
 import Card, { CardContent, CardHeader } from '../../components/common/Card';
 import Button from '../../components/common/Button';
 import Input from '../../components/common/Input';
 import Select from '../../components/common/Select';
-import { Ticket } from '../../types';
-import { toast } from 'react-toastify';
+import Modal from '../../components/common/Modal';
 
-const mockTickets: Ticket[] = [
+// Extended ticket interface for display purposes
+interface TicketDisplay extends Ticket {
+  ticketNumber: string;
+  eventTitle: string;
+  userName: string;
+  userEmail: string;
+  userPhone?: string;
+  price: number;
+  purchaseDate: string;
+}
+
+const mockTickets: TicketDisplay[] = [
   {
     id: '1',
+    ticketNumber: 'TC2025-001234',
     eventId: '1',
-    eventTitle: 'Tech Conference 2024',
-    eventDate: '2024-06-15',
-    eventTime: '09:00 AM - 06:00 PM',
-    eventLocation: 'Convention Center',
+    eventTitle: 'Tech Conference 2025',
     userId: '1',
     userName: 'John Doe',
     userEmail: 'john@example.com',
     userPhone: '123-456-7890',
-    price: 299.99,
-    purchaseDate: '2024-01-15T10:30:00Z',
-    status: 'paid',
-    ticketNumber: 'TC2024-001',
+    ticketType: 'VIP',
+    price: 199.99,
+    purchaseDate: '2024-05-10T14:30:00Z',
+    status: 'valid',
+    qrCode: 'qr-code-1'
   },
   {
     id: '2',
-    eventId: '2',
-    eventTitle: 'Music Festival',
-    eventDate: '2024-07-20',
-    eventTime: '12:00 PM - 11:00 PM',
-    eventLocation: 'Central Park',
+    ticketNumber: 'TC2025-005678',
+    eventId: '1',
+    eventTitle: 'Tech Conference 2025',
     userId: '2',
     userName: 'Jane Smith',
     userEmail: 'jane@example.com',
-    price: 149.99,
-    purchaseDate: '2024-01-16T14:20:00Z',
-    status: 'pending',
-    ticketNumber: 'MF2024-001',
-  },
+    userPhone: '987-654-3210',
+    ticketType: 'Regular',
+    price: 299.99,
+    purchaseDate: '2024-05-15T10:20:00Z',
+    status: 'valid',
+    qrCode: 'qr-code-2'
+  }
 ];
 
 const Tickets: React.FC = () => {
-  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [tickets, setTickets] = useState<TicketDisplay[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [selectedTicket, setSelectedTicket] = useState<TicketDisplay | null>(null);
   const [showCancelModal, setShowCancelModal] = useState(false);
   
   const [filters, setFilters] = useState({
@@ -56,8 +69,7 @@ const Tickets: React.FC = () => {
 
   const statusOptions = [
     { value: '', label: 'All Statuses' },
-    { value: 'pending', label: 'Pending' },
-    { value: 'paid', label: 'Paid' },
+    { value: 'valid', label: 'Valid' },
     { value: 'used', label: 'Used' },
     { value: 'cancelled', label: 'Cancelled' },
     { value: 'refunded', label: 'Refunded' },
@@ -101,17 +113,31 @@ const Tickets: React.FC = () => {
     setTickets(filteredTickets);
   };
 
-  const handleCancelTicket = async (ticket: Ticket) => {
+  const handleCancelTicket = async (ticket: TicketDisplay) => {
     try {
-      // In a real app, we would call an API to cancel the ticket
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await cancelTicketApi(ticket.id);
       setTickets(tickets.map(t => 
         t.id === ticket.id ? { ...t, status: 'cancelled' as const } : t
       ));
       toast.success('Ticket cancelled successfully');
+      setShowCancelModal(false);
+      setSelectedTicket(null);
     } catch (error) {
       console.error('Error cancelling ticket:', error);
       toast.error('Failed to cancel ticket');
+    }
+  };
+
+  const handleRefundTicket = async (ticket: TicketDisplay) => {
+    try {
+      await refundTicketApi(ticket.id);
+      setTickets(tickets.map(t => 
+        t.id === ticket.id ? { ...t, status: 'refunded' as const } : t
+      ));
+      toast.success('Refund processed successfully');
+    } catch (error) {
+      console.error('Error processing refund:', error);
+      toast.error('Failed to process refund');
     }
   };
 
@@ -159,7 +185,7 @@ const Tickets: React.FC = () => {
           }}
           className="flex items-center"
         >
-          <QrCode size={18} className="mr-2" />
+          <Filter size={18} className="mr-2" />
           Check-in Station
         </Button>
       </div>
@@ -236,7 +262,9 @@ const Tickets: React.FC = () => {
                       <div className="flex items-center">
                         <div className="flex-shrink-0 h-10 w-10">
                           <div className="h-10 w-10 rounded-lg bg-primary-100 flex items-center justify-center">
-                            <TicketIcon size={20} className="text-primary-600" />
+                            <div className="h-10 w-10 rounded-lg bg-primary-100 flex items-center justify-center">
+                              {ticket.ticketNumber.charAt(0)}
+                            </div>
                           </div>
                         </div>
                         <div className="ml-4">
@@ -254,7 +282,7 @@ const Tickets: React.FC = () => {
                         {ticket.eventTitle}
                       </div>
                       <div className="text-sm text-gray-500">
-                        {ticket.eventDate} • {ticket.eventTime}
+                        {formatDate(ticket.purchaseDate)}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -275,16 +303,16 @@ const Tickets: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full
-                        ${ticket.status === 'paid' ? 'bg-green-100 text-green-800' :
-                          ticket.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                        ${ticket.status === 'valid' ? 'bg-green-100 text-green-800' :
                           ticket.status === 'used' ? 'bg-blue-100 text-blue-800' :
                           ticket.status === 'cancelled' ? 'bg-red-100 text-red-800' :
+                          ticket.status === 'refunded' ? 'bg-yellow-100 text-yellow-800' :
                           'bg-gray-100 text-gray-800'}`}
                       >
                         {ticket.status.charAt(0).toUpperCase() + ticket.status.slice(1)}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <div className="flex space-x-2">
                         <Button
                           variant="outline"
@@ -295,7 +323,7 @@ const Tickets: React.FC = () => {
                         >
                           View
                         </Button>
-                        {ticket.status === 'paid' && (
+                        {ticket.status === 'valid' && (
                           <Button
                             variant="outline"
                             size="sm"

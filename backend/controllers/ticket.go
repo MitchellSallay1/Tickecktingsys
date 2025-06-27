@@ -328,4 +328,273 @@ func (tc *TicketController) VerifyTicket(c *gin.Context) {
 		"message": "Ticket verified successfully",
 		"ticket":  response,
 	})
+}
+
+// CancelTicket cancels a ticket and initiates refund process
+func (tc *TicketController) CancelTicket(c *gin.Context) {
+	user, exists := utils.GetUserFromContext(c)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	id := c.Param("id")
+	objectID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ticket ID"})
+		return
+	}
+
+	var ticket models.Ticket
+	err = tc.ticketCollection.FindOne(context.Background(), bson.M{"_id": objectID}).Decode(&ticket)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Ticket not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch ticket"})
+		return
+	}
+
+	// Check if user has permission to cancel this ticket
+	if ticket.UserID != user.ID && user.Role != "admin" && user.Role != "organizer" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
+		return
+	}
+
+	// Check if ticket can be cancelled
+	if ticket.Status == "used" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot cancel a used ticket"})
+		return
+	}
+
+	if ticket.Status == "cancelled" || ticket.Status == "refunded" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Ticket is already cancelled or refunded"})
+		return
+	}
+
+	// Update ticket status to cancelled
+	_, err = tc.ticketCollection.UpdateOne(
+		context.Background(),
+		bson.M{"_id": objectID},
+		bson.M{"$set": bson.M{
+			"status":     "cancelled",
+			"updated_at": time.Now(),
+		}},
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cancel ticket"})
+		return
+	}
+
+	// If ticket was paid, initiate refund process
+	if ticket.Status == "paid" {
+		// TODO: Implement refund logic with payment provider
+		// For now, we'll just update the status to refunded
+		_, err = tc.ticketCollection.UpdateOne(
+			context.Background(),
+			bson.M{"_id": objectID},
+			bson.M{"$set": bson.M{
+				"status":     "refunded",
+				"updated_at": time.Now(),
+			}},
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process refund"})
+			return
+		}
+	}
+
+	// Update event sold tickets count (decrease by cancelled quantity)
+	if ticket.Status == "paid" {
+		_, err = tc.eventCollection.UpdateOne(
+			context.Background(),
+			bson.M{"_id": ticket.EventID},
+			bson.M{"$inc": bson.M{"sold_tickets": -ticket.Quantity}},
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update event"})
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Ticket cancelled successfully",
+		"refunded": ticket.Status == "paid",
+	})
+}
+
+// RefundTicket processes a refund for a cancelled ticket
+func (tc *TicketController) RefundTicket(c *gin.Context) {
+	user, exists := utils.GetUserFromContext(c)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	// Only admins and organizers can process refunds
+	if user.Role != "admin" && user.Role != "organizer" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
+		return
+	}
+
+	id := c.Param("id")
+	objectID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ticket ID"})
+		return
+	}
+
+	var ticket models.Ticket
+	err = tc.ticketCollection.FindOne(context.Background(), bson.M{"_id": objectID}).Decode(&ticket)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Ticket not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch ticket"})
+		return
+	}
+
+	// Check if ticket can be refunded
+	if ticket.Status != "cancelled" && ticket.Status != "paid" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Ticket cannot be refunded"})
+		return
+	}
+
+	// TODO: Implement actual refund logic with payment provider
+	// For now, we'll just update the status
+
+	// Update ticket status to refunded
+	_, err = tc.ticketCollection.UpdateOne(
+		context.Background(),
+		bson.M{"_id": objectID},
+		bson.M{"$set": bson.M{
+			"status":     "refunded",
+			"updated_at": time.Now(),
+		}},
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process refund"})
+		return
+	}
+
+	// Update event sold tickets count (decrease by refunded quantity)
+	_, err = tc.eventCollection.UpdateOne(
+		context.Background(),
+		bson.M{"_id": ticket.EventID},
+		bson.M{"$inc": bson.M{"sold_tickets": -ticket.Quantity}},
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update event"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Refund processed successfully",
+		"amount":  ticket.Price,
+	})
+}
+
+// GetEventTickets returns all tickets for a specific event (organizer/admin only)
+func (tc *TicketController) GetEventTickets(c *gin.Context) {
+	user, exists := utils.GetUserFromContext(c)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	// Only organizers and admins can view event tickets
+	if user.Role != "organizer" && user.Role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
+		return
+	}
+
+	eventID := c.Param("eventId")
+	objectID, err := primitive.ObjectIDFromHex(eventID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid event ID"})
+		return
+	}
+
+	// Check if event exists
+	var event models.Event
+	err = tc.eventCollection.FindOne(context.Background(), bson.M{"_id": objectID}).Decode(&event)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Event not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch event"})
+		return
+	}
+
+	// Check if user has permission to view this event's tickets
+	if user.Role == "organizer" && event.OrganizerID != user.ID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
+		return
+	}
+
+	// Parse query parameters
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	status := c.Query("status")
+
+	// Build filter
+	filter := bson.M{"event_id": objectID}
+	if status != "" {
+		filter["status"] = status
+	}
+
+	// Set up pagination
+	skip := (page - 1) * limit
+	opts := options.Find().
+		SetLimit(int64(limit)).
+		SetSkip(int64(skip)).
+		SetSort(bson.M{"created_at": -1})
+
+	// Find tickets
+	cursor, err := tc.ticketCollection.Find(context.Background(), filter, opts)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch tickets"})
+		return
+	}
+	defer cursor.Close(context.Background())
+
+	var tickets []models.Ticket
+	if err = cursor.All(context.Background(), &tickets); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode tickets"})
+		return
+	}
+
+	// Convert to responses with details
+	var responses []models.TicketResponse
+	for _, ticket := range tickets {
+		// Get user details
+		var ticketUser models.User
+		err := tc.userCollection.FindOne(context.Background(), bson.M{"_id": ticket.UserID}).Decode(&ticketUser)
+		if err != nil {
+			continue // Skip this ticket if user not found
+		}
+
+		response := ticket.ToResponseWithDetails(event.ToResponse(), ticketUser.ToResponse())
+		responses = append(responses, response)
+	}
+
+	// Get total count
+	total, err := tc.ticketCollection.CountDocuments(context.Background(), filter)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count tickets"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"tickets": responses,
+		"pagination": gin.H{
+			"page":  page,
+			"limit": limit,
+			"total": total,
+			"pages": (int(total) + limit - 1) / limit,
+		},
+	})
 } 

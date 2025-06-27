@@ -57,6 +57,9 @@ func SetupRoutes(router *gin.Engine, authMiddleware *middleware.AuthMiddleware) 
 				tickets.POST("", ticketController.CreateTicket)
 				tickets.GET("/:id", ticketController.GetTicketByID)
 				tickets.POST("/verify", ticketController.VerifyTicket)
+				tickets.PUT("/:id/cancel", ticketController.CancelTicket)
+				tickets.PUT("/:id/refund", ticketController.RefundTicket)
+				tickets.GET("/event/:eventId", ticketController.GetEventTickets)
 			}
 
 			// Payment routes

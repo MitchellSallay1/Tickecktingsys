@@ -259,7 +259,31 @@ export const cancelTicketApi = async (ticketId: string): Promise<Ticket> => {
     return updatedTicket;
   }
   
-  const response = await api.post<Ticket>(`/tickets/${ticketId}/cancel`);
+  const response = await api.put<Ticket>(`/tickets/${ticketId}/cancel`);
+  return response.data;
+};
+
+export const refundTicketApi = async (ticketId: string): Promise<Ticket> => {
+  if (MOCK_API) {
+    // Simulate API delay
+    await new Promise(resolve => setTimeout(resolve, 800));
+    
+    const ticketIndex = mockTickets.findIndex(t => t.id === ticketId);
+    if (ticketIndex === -1) {
+      throw new Error('Ticket not found');
+    }
+    
+    // In a real app, we would update the database
+    // For mock purposes, we'll just return an updated ticket
+    const updatedTicket: Ticket = {
+      ...mockTickets[ticketIndex],
+      status: 'refunded'
+    };
+    
+    return updatedTicket;
+  }
+  
+  const response = await api.put<Ticket>(`/tickets/${ticketId}/refund`);
   return response.data;
 };
 
