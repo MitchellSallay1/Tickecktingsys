@@ -72,16 +72,9 @@ func (am *AuthMiddleware) AuthMiddleware() gin.HandlerFunc {
 // RequireRole middleware checks if user has required role
 func (am *AuthMiddleware) RequireRole(requiredRole string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userInterface, exists := c.Get("user")
+		user, exists := utils.GetUserFromContext(c)
 		if !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
-			c.Abort()
-			return
-		}
-
-		user, ok := userInterface.(*models.User)
-		if !ok {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user data"})
 			c.Abort()
 			return
 		}
@@ -151,22 +144,4 @@ func (am *AuthMiddleware) OptionalAuth() gin.HandlerFunc {
 	}
 }
 
-// GetUserFromContext gets user from gin context
-func GetUserFromContext(c *gin.Context) (*models.User, bool) {
-	userInterface, exists := c.Get("user")
-	if !exists {
-		return nil, false
-	}
-
-	user, ok := userInterface.(*models.User)
-	return user, ok
-}
-
-// GetUserIDFromContext gets user ID from gin context
-func GetUserIDFromContext(c *gin.Context) (primitive.ObjectID, bool) {
-	user, exists := GetUserFromContext(c)
-	if !exists {
-		return primitive.NilObjectID, false
-	}
-	return user.ID, true
-} 
+ 

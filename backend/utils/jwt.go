@@ -9,6 +9,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"github.com/gin-gonic/gin"
 )
 
 type Claims struct {
@@ -63,4 +64,24 @@ func ExtractTokenFromHeader(authHeader string) (string, error) {
 		return "", errors.New("invalid authorization header format")
 	}
 	return authHeader[7:], nil
+}
+
+// GetUserFromContext gets user from gin context
+func GetUserFromContext(c *gin.Context) (*models.User, bool) {
+	userInterface, exists := c.Get("user")
+	if !exists {
+		return nil, false
+	}
+
+	user, ok := userInterface.(*models.User)
+	return user, ok
+}
+
+// GetUserIDFromContext gets user ID from gin context
+func GetUserIDFromContext(c *gin.Context) (primitive.ObjectID, bool) {
+	user, exists := GetUserFromContext(c)
+	if !exists {
+		return primitive.NilObjectID, false
+	}
+	return user.ID, true
 } 
