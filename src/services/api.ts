@@ -127,8 +127,8 @@ export interface CreateEventRequest {
 }
 
 export interface CreateTicketRequest {
-  event_id: string;
-  quantity: number;
+  eventId: string;
+  paymentRef: string;
 }
 
 export interface InitiatePaymentRequest {
@@ -139,8 +139,7 @@ export interface InitiatePaymentRequest {
 }
 
 export interface VerifyTicketRequest {
-  ticket_code: string;
-  event_id: string;
+  code: string;
 }
 
 export interface PaginatedResponse<T> {
@@ -198,16 +197,16 @@ export const eventsAPI = {
   },
 
   createEvent: async (eventData: CreateEventRequest): Promise<Event> => {
-    const response: AxiosResponse<{ message: string; event: Event }> = await api.post('/events', eventData);
+    const response: AxiosResponse<{ message: string; event: Event }> = await api.post('/organizer/events', eventData);
     return response.data.event;
   },
 
   updateEvent: async (id: string, eventData: Partial<CreateEventRequest>): Promise<void> => {
-    await api.put(`/events/${id}`, eventData);
+    await api.put(`/organizer/events/${id}`, eventData);
   },
 
   deleteEvent: async (id: string): Promise<void> => {
-    await api.delete(`/events/${id}`);
+    await api.delete(`/organizer/events/${id}`);
   },
 
   getOrganizerEvents: async (params?: {
@@ -215,7 +214,7 @@ export const eventsAPI = {
     limit?: number;
     status?: string;
   }): Promise<PaginatedResponse<Event>> => {
-    const response: AxiosResponse<{ events: Event[]; pagination: any }> = await api.get('/events/organizer/events', { params });
+    const response: AxiosResponse<{ events: Event[]; pagination: any }> = await api.get('/organizer/events', { params });
     return {
       data: response.data.events,
       pagination: response.data.pagination,
@@ -251,12 +250,20 @@ export const ticketsAPI = {
     const response: AxiosResponse<{ valid: boolean; message: string; ticket?: Ticket }> = await api.post('/tickets/verify', verifyData);
     return response.data;
   },
+
+  getOrganizerEventTickets: async (eventId: string, params?: { page?: number; limit?: number; }): Promise<PaginatedResponse<Ticket>> => {
+    const response: AxiosResponse<{ tickets: Ticket[]; pagination: any }> = await api.get(`/organizer/tickets/${eventId}`, { params });
+    return {
+      data: response.data.tickets,
+      pagination: response.data.pagination,
+    };
+  },
 };
 
 // Payments API
 export const paymentsAPI = {
   initiatePayment: async (paymentData: InitiatePaymentRequest): Promise<{ payment: Payment; momo?: any }> => {
-    const response: AxiosResponse<{ message: string; payment: Payment; momo?: any }> = await api.post('/payments/initiate', paymentData);
+    const response: AxiosResponse<{ message: string; payment: Payment; momo?: any }> = await api.post('/payment/initiate', paymentData);
     return { payment: response.data.payment, momo: response.data.momo };
   },
 
@@ -270,6 +277,11 @@ export const paymentsAPI = {
       data: response.data.payments,
       pagination: response.data.pagination,
     };
+  },
+
+  paymentCallback: async (callbackData: any): Promise<any> => {
+    const response: AxiosResponse<any> = await api.post('/payment/callback', callbackData);
+    return response.data;
   },
 };
 
